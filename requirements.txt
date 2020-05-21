@@ -1,0 +1,13 @@
+numpy
+torchsummary
+opencv-contrib-python
+matplotlib
+numpy
+Pillow==6.2.1
+torchvision==0.4.2+cu92
+scipy==1.2.2
+scikit-image
+tensorboardX
+loguru
+pytorch-ignite
+scikit-learn

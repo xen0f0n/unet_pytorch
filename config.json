@@ -1,0 +1,25 @@
+{
+    "module": "unet_orig",
+    "model_name": "UNetOrig",
+
+    "data_loader": {
+        "type": "MembranesDataset",
+        "args":{
+            "train_image_paths": "./data/membrane/folds/fold_1_train_images.npy",
+            "train_mask_paths" : "./data/membrane/folds/fold_1_train_masks.npy",
+            "val_image_paths": "./data/membrane/folds/fold_1_val_images.npy",
+            "val_mask_paths" : "./data/membrane/folds/fold_1_val_masks.npy"
+        }
+    },
+
+    "trainer": {
+        "log_num" : 1,
+        "epochs" : 5,
+        "in_channels" : 1,
+        "out_channels" : 1,
+        "device" : "cuda",
+        "learning_rate" : 0.0001,
+        "batch_size" : 2,
+        "exp_folder": "experiments"
+    }
+}
