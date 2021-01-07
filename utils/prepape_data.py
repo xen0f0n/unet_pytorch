@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import os
 import shutil
@@ -46,7 +47,11 @@ def make_folds(images_folder, labels_folder, num_fold=5):
 
 
 if __name__ == '__main__':
-    images_folder = '/home/xen0f0n/Repositories/unet_pytorch/data/membrane/train/image'
-    labels_folder = '/home/xen0f0n/Repositories/unet_pytorch/data/membrane/train/label'
 
-    make_folds(images_folder, labels_folder)
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('--images_folder', default='/content/unet_pytorch/data/membrane/train/image')
+    parser.add_argument('--labels_folder', default='/content/unet_pytorch/data/membrane/train/label')
+
+    args = parser.parse_args()
+
+    make_folds(args.images_folder, args.labels_folder)
