@@ -1,35 +1,19 @@
-from ignite.engine import Engine, Events, create_supervised_evaluator, create_supervised_trainer
-from ignite.metrics import Accuracy, Precision, ConfusionMatrix, Loss, Recall
-from ignite.handlers import Checkpoint, DiskSaver, ModelCheckpoint
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-import torch.optim as optim
 from loguru import logger
+import matplotlib.pyplot as plt
 import os
 import shutil
-from models.unet_orig import UNetOrig as net
+# from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from pytorch_lightning.metrics.functional import accuracy, precision, recall, f1_score
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from torch.utils.data import DataLoader
+
 from data import MembranesDataset
-from utils.losses.focal_loss import BinaryFocalLossWithLogits
+from models.unet_orig import UNetOrig as net
 from utils.json_parser import parse_json
 
-
-def log_this(config_params, net, criterion, optimizer):
-    logger.add(f'experiments/{config_params["trainer"]["log_num"]}/info.log')
-    logger.info('\n\n\n\n\n\n-----------------------------------------------------\n'
-                '-----------------------------------------------------\n\n\n\n\n\n')
-    logger.info(f'Model -->  {config_params["model_name"]}')
-    logger.info(f'Model short description --> {net.description}')
-    logger.info(
-        f'input_channels --> {config_params["trainer"]["in_channels"]} \t output_classes --> {config_params["trainer"]["out_channels"]}')
-    logger.info(f'Loss --> {criterion}')
-    logger.info(f'Epochs --> {config_params["trainer"]["epochs"]}')
-    logger.info(f'Batch Size --> {config_params["trainer"]["batch_size"]}')
-    logger.info(f'Optimizer --> {optimizer}')
-
-
 if __name__ == "__main__":
-
     ####################################
     # PARSE CONFIG FILE
     ####################################
@@ -44,6 +28,7 @@ if __name__ == "__main__":
     lr = config_params["trainer"]["learning_rate"]
     batch_size = config_params["trainer"]["batch_size"]
 
+    os.makedirs(os.path.join('experiments', f'{log_num}'), exist_ok=True)
     shutil.copy('config.json', os.path.join(f'./experiments/{log_num}', 'config.json'))
 
     ####################################
@@ -73,73 +58,102 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
     model = net(n_channels=input_channels, n_classes=output_classes).to(device)
 
-    # criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    criterion = BinaryFocalLossWithLogits(alpha=.75, gamma=2, reduction='mean')
+    criterion = nn.BCEWithLogitsLoss(reduction='mean')
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    log_this(config_params, model, criterion, optimizer)
+    logger.add(f'info.log')
 
-    ####################################
-    # TRAINER, EVALUATOR ENGINES, METRICS
-    ####################################
+    history = {
+        'train_loss': [],
+        'train_acc': [],
+        'train_recall': [],
+        'train_f1': [],
+        'train_cm': [],
+        'val_loss': [],
+        'val_acc': [],
+        'val_recall': [],
+        'val_f1': [],
+        'val_cm': [],
+    }
 
-    trainer = create_supervised_trainer(model, optimizer, criterion, device=device)
+    # TRAIN LOOP
+    for epoch in range(1, epochs + 1):
 
-    def thresholded_output_transform(output):
-        y_pred, y = output
-        y_pred = torch.clamp(y_pred, 0., 1.)
-        y_pred = torch.round(y_pred)
-        return y_pred, y
+        model.train()
 
-    binary_accuracy = Accuracy(thresholded_output_transform)
-    precision = Precision(average=True, output_transform=thresholded_output_transform)
-    recall = Recall(average=True, output_transform=thresholded_output_transform)
-    precision_f1 = Precision(average=False, output_transform=thresholded_output_transform)
-    recall_f1 = Recall(average=False, output_transform=thresholded_output_transform)
+        train_loss = 0  # summation of loss for every batch
+        train_acc = 0  # summation of accuracy for every batch
+        train_recall = 0
+        train_precision = 0
+        train_f1 = 0
 
-    F1 = precision_f1 * recall_f1 * 2 / (precision_f1 + recall_f1 + 1e-20)
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
-    metrics = {
-        'Loss': Loss(criterion),
-        'acc': binary_accuracy,
-        'precision': precision,
-        'recall': recall,
-        'f1': F1
-        }
+            optimizer.zero_grad()
 
-    train_evaluator = create_supervised_evaluator(model, device=device, metrics=metrics)
-    val_evaluator = create_supervised_evaluator(model, device=device, metrics=metrics)
+            y_pred = model(X_batch)
+            loss = criterion(y_pred, y_batch)
 
-    def log_metrics(metrics, title):
-        logger.info(f"EPOCH: {trainer.state.epoch} ({title})")
-        logger.info(f"{'':<10}Loss{'':<5} ----> {metrics['Loss']}")
-        logger.info(f"{'':<10}Acc{'':<5} ----> {metrics['acc']}")
-        logger.info(f"{'':<10}Precision{'':<5} ----> {metrics['precision']}")
-        logger.info(f"{'':<10}Recall{'':<5} ----> {metrics['recall']}")
-        logger.info(f"{'':<10}F1{'':<5} ----> {metrics['f1']}")
+            train_loss += loss.item()
+            train_acc += accuracy(y_batch, y_pred)  # calculate accuracy (on this single batch)
+            train_recall += recall(y_batch, y_pred)
+            train_precision += train_precision(y_batch, y_pred)
+            train_f1 += f1_score(y_batch, y_pred)
 
-    @trainer.on(Events.EPOCH_COMPLETED)
-    def log_training_metrics(engine):
-        train_evaluator.run(train_loader)
-        metrics = train_evaluator.state.metrics
-        log_metrics(metrics, 'train')
+            loss.backward()
+            optimizer.step()
 
+        history['train_loss'].append(train_loss / len(train_loader))
+        history['train_acc'].append(train_acc / len(train_loader))
+        history['train_recall'].append(train_recall / len(train_loader))
+        history['train_precision'].append(train_precision / len(train_loader))
+        history['train_f1'].append(train_f1 / len(train_loader))
 
-    @trainer.on(Events.EPOCH_COMPLETED(every=5))
-    def log_validation_results(engine):
-        val_evaluator.run(val_loader)
-        metrics = val_evaluator.state.metrics
-        log_metrics(metrics, 'validation')
+        logger.info(f"EPOCH: {e} (training)")
+        logger.info(f"{'':<10}Loss{'':<5} ----> {train_loss / len(train_loader):.5f}")
+        logger.info(f"{'':<10}Accuracy{'':<1} ----> {train_acc / len(train_loader):.3f}")
+        logger.info(f"{'':<10}Recall{'':<1} ----> {train_recall / len(train_loader):.3f}")
+        logger.info(f"{'':<10}Precision{'':<1} ----> {train_precision / len(train_loader):.3f}")
+        logger.info(f"{'':<10}F1{'':<1} ----> {train_f1 / len(train_loader):.3f}")
 
+        if epoch % 5 == 0:  # if the number of epoch is divided by 5 do the validation
 
-    ####################################
-    # CHECKPOINTING HANDLER
-    ####################################
+            model.eval()
 
-    to_save = {'model': model, 'optimizer': optimizer}
-    ckpt_handler = ModelCheckpoint(f'./experiments/{log_num}/checkpoints', 'epoch',
-                                   global_step_transform=lambda e, _: e.state.epoch, n_saved=None, create_dir=True)
-    trainer.add_event_handler(Events.EPOCH_COMPLETED(every=5), ckpt_handler, to_save)
+            val_loss = 0
+            val_acc = 0
+            val_recall = 0
+            val_precision = 0
+            val_f1 = 0
 
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)  # send values to device (GPU)
+                y_val_pred = model(X_batch)
 
-    trainer.run(train_loader, max_epochs=epochs, epoch_length=4000//batch_size)
+                val_loss += criterion(y_val_pred, y_batch)
+                val_acc += accuracy(y_val_pred, y_batch)
+                val_recall += recall(y_batch, y_val_pred)
+                val_precision += precision(y_batch, y_val_pred)
+                val_f1 += f1_score(y_batch, y_val_pred)
+
+            history['val_loss'].append(val_loss / len(val_loader))
+            history['val_acc'].append(val_acc / len(val_loader))
+            history['val_recall'].append(val_recall / len(val_loader))
+            history['val_precision'].append(val_precision / len(val_loader))
+            history['val_f1'].append(val_f1 / len(val_loader))
+
+            logger.info(f"EPOCH: {e} (validation)")
+            logger.info(f"{'':<10}Loss{'':<5} ----> {val_loss / len(val_loader):.5f}")
+            logger.info(f"{'':<10}Accuracy{'':<1} ----> {val_acc / len(val_loader):.3f}")
+            logger.info(f"{'':<10}Recall{'':<1} ----> {val_recall / len(val_loader):.3f}")
+            logger.info(f"{'':<10}Precision{'':<1} ----> {val_precision / len(val_loader):.3f}")
+            logger.info(f"{'':<10}F1{'':<1} ----> {val_f1 / len(val_loader):.3f}")
+
+plt.rcParams['figure.figsize'] = [12, 8]
+plt.rcParams['figure.dpi'] = 100
+
+plt.plot(list(range(1, epochs + 1)), history['train_loss'], label='Training Loss')
+plt.plot(list(range(5, epochs + 1, 5)), history['val_loss'], label='Validation Loss')
+plt.legend(loc="upper right")
+plt.show()

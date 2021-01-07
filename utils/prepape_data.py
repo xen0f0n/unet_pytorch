@@ -46,7 +46,7 @@ def make_folds(images_folder, labels_folder, num_fold=5):
 
 
 if __name__ == '__main__':
-    images_folder = '/mnt/genesis/xen0f0n/Repositories/unet_pytorch/data/membrane/train/image'
-    labels_folder = '/mnt/genesis/xen0f0n/Repositories/unet_pytorch/data/membrane/train/label'
+    images_folder = '/home/xen0f0n/Repositories/unet_pytorch/data/membrane/train/image'
+    labels_folder = '/home/xen0f0n/Repositories/unet_pytorch/data/membrane/train/label'
 
     make_folds(images_folder, labels_folder)
