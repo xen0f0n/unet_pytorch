@@ -8,5 +8,3 @@ pytorch-ignite
 pytorch-lightning
 scikit-learn
 scikit-image
-scipy==1.2.2
-tensorboardX
