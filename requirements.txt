@@ -3,7 +3,7 @@ nox
 numpy
 opencv-contrib-python
 loguru
-Pillow==6.2.1
+Pillow
 pytorch-ignite
 pytorch-lightning
 scikit-learn
